@@ -470,7 +470,7 @@
                                 startTs = intervals[0][0] / 1000.0;
                                 nextTs = intervals[1][0] / 1000.0;
                             } else startTs = (props.timestamp || Date.now()) / 1000.0;
-                            
+
                             // If heading is null (train stopped), use the previous heading if available
                             if (heading === null && trainData[id] && trainData[id].heading != null) {
                                 heading = trainData[id].heading;
@@ -502,32 +502,59 @@
                 else markers[id].setIcon(icon);
             }
 
+            var ENABLE_ANIMATION = false;
+
             function animate() {
                 var now = Date.now() / 1000;
+
                 Object.keys(trainData).forEach(id => {
                     var t = trainData[id];
                     var marker = markers[id];
-                    var ageSeconds = (now - t.ts) / 1000;
 
-                    // If older than 2 minutes, make it semi-transparent
+                    // --- TIMEOUT LOGIC (Keep this regardless of animation) ---
+                    var ageSeconds = now - t.ts; // t.ts is already in seconds in your data object? 
+                    // (Check: in your previous snippet t.ts = Date.now()/1000)
+
                     if (ageSeconds > 60) {
                         marker.setOpacity(0.5);
                     } else {
                         marker.setOpacity(1.0);
                     }
-                    if (now - t.ts > 120) {
-                        trainLayer.removeLayer(marker); delete markers[id]; delete trainData[id]; return;
+
+                    if (ageSeconds > 120) {
+                        trainLayer.removeLayer(marker);
+                        delete markers[id];
+                        delete trainData[id];
+                        return;
                     }
+
+                    // --- ANIMATION LOGIC ---
                     var isBoarding = (t.state === 'BOARDING' || t.state === 'STOPPING');
-                    if (!isBoarding && t.next_lat && t.next_lon && t.next_ts && t.start_ts) {
+
+                    // Check our new boolean flag
+                    if (ENABLE_ANIMATION && !isBoarding && t.next_lat && t.next_lon && t.next_ts && t.start_ts) {
+                        // INTERPOLATE POSITION
                         var total = t.next_ts - t.start_ts;
                         var elapsed = now - t.start_ts;
+
                         if (total > 0) {
+                            // Calculate percentage (0.0 to 1.05 to allow slight overshoot prediction)
                             var p = Math.max(0, Math.min(elapsed / total, 1.05));
-                            marker.setLatLng([t.lat + (t.next_lat - t.lat) * p, t.lon + (t.next_lon - t.lon) * p]);
-                        } else marker.setLatLng([t.next_lat, t.next_lon]);
-                    } else marker.setLatLng([t.lat, t.lon]);
+                            marker.setLatLng([
+                                t.lat + (t.next_lat - t.lat) * p,
+                                t.lon + (t.next_lon - t.lon) * p
+                            ]);
+                        } else {
+                            // Fallback if time diff is zero
+                            marker.setLatLng([t.next_lat, t.next_lon]);
+                        }
+                    } else {
+                        // NO ANIMATION (JUMP TO LATEST KNOWN POINT)
+                        // If animation is disabled, or train is boarding, just show it at its last reported location
+                        marker.setLatLng([t.lat, t.lon]);
+                    }
                 });
+
                 requestAnimationFrame(animate);
             }
             requestAnimationFrame(animate);
